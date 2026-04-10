@@ -174,65 +174,70 @@ const server = http.createServer(async (req, res) => {
     const action = pathname.replace('/api/admin/','');
 
     try{
-      // Check player exists
-      const [[user]] = await db.query('SELECT uid, username, level, cash, bank, admin FROM users WHERE username = ?', [player]);
-      if(!user && action!=='unban'){ fail(res,`Player "${player}" not found in database`); return; }
+      // Case-insensitive partial name search
+      const [matches] = await db.query('SELECT uid, username, level, cash, bank FROM users WHERE username LIKE ? LIMIT 5', ['%'+player+'%']);
+      const user = matches[0];
+      if(!user && action!=='unban'){
+        fail(res,'Player "'+player+'" not found. Try part of name e.g. "Kwame" instead of full name.');
+        return;
+      }
+      const exactName = user ? user.username : player;
 
       switch(action) {
         case 'givemoney': {
           const amount = parseInt(value);
           if(isNaN(amount)||amount<=0){ fail(res,'Invalid amount'); return; }
-          await db.query('UPDATE users SET cash = cash + ? WHERE username = ?', [amount,player]);
-          ok(res,{success:true, message:`✅ Gave $${amount.toLocaleString()} cash to ${player}`});
+          await db.query('UPDATE users SET cash = cash + ? WHERE username = ?', [amount,exactName]);
+          ok(res,{success:true, message:`✅ Gave $${amount.toLocaleString()} cash to ${exactName}`});
           break;
         }
         case 'givebank': {
           const amount = parseInt(value);
           if(isNaN(amount)||amount<=0){ fail(res,'Invalid amount'); return; }
-          await db.query('UPDATE users SET bank = bank + ? WHERE username = ?', [amount,player]);
-          ok(res,{success:true, message:`✅ Gave $${amount.toLocaleString()} bank to ${player}`});
+          await db.query('UPDATE users SET bank = bank + ? WHERE username = ?', [amount,exactName]);
+          ok(res,{success:true, message:`✅ Gave $${amount.toLocaleString()} bank to ${exactName}`});
           break;
         }
         case 'takemoney': {
           const amount = parseInt(value);
           if(isNaN(amount)||amount<=0){ fail(res,'Invalid amount'); return; }
-          await db.query('UPDATE users SET cash = GREATEST(0, cash - ?) WHERE username = ?', [amount,player]);
-          ok(res,{success:true, message:`✅ Took $${amount.toLocaleString()} cash from ${player}`});
+          await db.query('UPDATE users SET cash = GREATEST(0, cash - ?) WHERE username = ?', [amount,exactName]);
+          ok(res,{success:true, message:`✅ Took $${amount.toLocaleString()} cash from ${exactName}`});
           break;
         }
         case 'setlevel': {
           const level = parseInt(value);
           if(isNaN(level)||level<1||level>100){ fail(res,'Level must be 1-100'); return; }
-          await db.query('UPDATE users SET level = ? WHERE username = ?', [level,player]);
-          ok(res,{success:true, message:`✅ Set ${player}'s level to ${level}`});
+          await db.query('UPDATE users SET level = ? WHERE username = ?', [level,exactName]);
+          ok(res,{success:true, message:`✅ Set ${exactName}'s level to ${level}`});
           break;
         }
         case 'setadmin': {
           const level = parseInt(value);
           if(isNaN(level)||level<0||level>7){ fail(res,'Admin level must be 0-7'); return; }
-          await db.query('UPDATE users SET adminlevel = ? WHERE username = ?', [level,player]);
-          ok(res,{success:true, message:`✅ Set ${player}'s admin level to ${level}`});
+          await db.query('UPDATE users SET adminlevel = ? WHERE username = ?', [level,exactName]);
+          ok(res,{success:true, message:`✅ Set ${exactName}'s admin level to ${level}`});
           break;
         }
         case 'ban': {
           const reason = value||'No reason';
           await db.query("INSERT INTO bans (username, ip, reason, date) VALUES (?, '0.0.0.0', ?, NOW()) ON DUPLICATE KEY UPDATE reason=VALUES(reason), date=NOW()", [player, reason]);
-          ok(res,{success:true, message:`✅ Banned ${player} — Reason: ${reason}`});
+          ok(res,{success:true, message:`✅ Banned ${exactName} — Reason: ${reason}`});
           break;
         }
         case 'unban': {
-          await db.query('DELETE FROM bans WHERE username = ?', [player]);
-          ok(res,{success:true, message:`✅ Unbanned ${player}`});
+          await db.query('DELETE FROM bans WHERE username = ?', [exactName]);
+          ok(res,{success:true, message:`✅ Unbanned ${exactName}`});
           break;
         }
         case 'resetpass': {
           if(!value||value.length<4){ fail(res,'Password must be at least 4 characters'); return; }
-          await db.query('UPDATE users SET password = ? WHERE username = ?', [value,player]);
-          ok(res,{success:true, message:`✅ Password reset for ${player}`});
+          await db.query('UPDATE users SET password = ? WHERE username = ?', [value,exactName]);
+          ok(res,{success:true, message:`✅ Password reset for ${exactName}`});
           break;
         }
         case 'search': {
-          const [[p]] = await db.query('SELECT username as name, level, cash, bank, admin as adminLevel, crimes, faction FROM users WHERE username = ?', [player]);
+          const [[p]] = await db.query('SELECT username as name, level, cash, bank, admin as adminLevel, crimes, faction FROM users WHERE username = ?', [exactName]);
           if(!p){ fail(res,`Player "${player}" not found`); return; }
           ok(res,{success:true, player:p, message:`Found: ${p.name} | Level ${p.level} | Cash $${Number(p.cash).toLocaleString()} | Bank $${Number(p.bank).toLocaleString()} | Admin Lvl ${p.adminLevel} | Crimes ${p.crimes} | Faction: ${p.faction||'None'}`});
           break;
