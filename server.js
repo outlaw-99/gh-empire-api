@@ -170,7 +170,7 @@ const server = http.createServer(async (req, res) => {
     if(!username||!password){ fail(res,'Username and password required'); return; }
     try{
       const [rows] = await db.query(
-        'SELECT username as name, level, cash, bank, hours, crimes, arrested, kills, deaths, job, faction, warnings, vip FROM users WHERE username = ? AND password = ? LIMIT 1',
+        'SELECT username as name, level, cash, bank, hours, crimes, arrested, job, faction, warnings, vippackage as vip, dirtycash FROM users WHERE username = ? AND password = ? LIMIT 1',
         [username, password]
       );
       if(!rows.length){ fail(res,'Wrong username or password.'); return; }
