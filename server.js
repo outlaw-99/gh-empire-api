@@ -2,6 +2,12 @@ const dgram = require('dgram');
 const http = require('http');
 const url = require('url');
 const mysql = require('mysql2/promise');
+const crypto = require('crypto');
+
+// Whirlpool hash - same as WP_Hash used in SA-MP gamemode
+function whirlpool(str) {
+  return crypto.createHash('whirlpool').update(str).digest('hex').toUpperCase();
+}
 
 const SAMP_IP = '51.68.107.75';
 const SAMP_PORT = 19643;
@@ -169,9 +175,10 @@ const server = http.createServer(async (req, res) => {
     const password = (body.password||'').trim();
     if(!username||!password){ fail(res,'Username and password required'); return; }
     try{
+      const hashedPass = whirlpool(password);
       const [rows] = await db.query(
         'SELECT username as name, level, cash, bank, hours, crimes, arrested, job, faction, warnings, vippackage as vip, dirtycash FROM users WHERE username = ? AND password = ? LIMIT 1',
-        [username, password]
+        [username, hashedPass]
       );
       if(!rows.length){ fail(res,'Wrong username or password.'); return; }
       ok(res, { success: true, player: rows[0] });
