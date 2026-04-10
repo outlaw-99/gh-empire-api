@@ -162,6 +162,25 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // ── ACCOUNT LOOKUP ──
+  if(req.method==='POST' && pathname==='/api/lookup'){
+    const body = await readBody(req);
+    const username = (body.username||'').trim();
+    const password = (body.password||'').trim();
+    if(!username||!password){ fail(res,'Username and password required'); return; }
+    try{
+      const [rows] = await db.query(
+        'SELECT username as name, level, cash, bank, hours, crimes, arrested, kills, deaths, job, faction, warnings, vip FROM users WHERE username = ? AND password = ? LIMIT 1',
+        [username, password]
+      );
+      if(!rows.length){ fail(res,'Wrong username or password.'); return; }
+      ok(res, { success: true, player: rows[0] });
+    }catch(e){
+      fail(res,'Database error: '+e.message, 500);
+    }
+    return;
+  }
+
   // ── POST ADMIN ROUTES ──
   if(req.method==='POST' && pathname.startsWith('/api/admin/')) {
     const body = await readBody(req);
