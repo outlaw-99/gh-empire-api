@@ -178,9 +178,22 @@ const server = http.createServer(async (req, res) => {
     try{
       const hashedPass = whirlpool(password);
       const [rows] = await db.query(
-        'SELECT username as name, level, cash, bank, hours, crimes, arrested, job, faction, warnings, vippackage as vip, dirtycash FROM users WHERE username = ? AND password = ? LIMIT 1',
+        `SELECT u.username as name, u.level, u.cash, u.bank, u.hours, u.crimes, u.arrested,
+         u.job, u.warnings, u.vippackage as vip, u.dirtycash,
+         u.faction as factionId, u.gang as gangId,
+         f.name as factionName, g.name as gangName
+         FROM users u
+         LEFT JOIN factions f ON u.faction = f.id AND u.faction >= 0
+         LEFT JOIN gangs g ON u.gang = g.id AND u.gang >= 0
+         WHERE u.username = ? AND u.password = ? LIMIT 1`,
         [username, hashedPass]
       );
+      if(rows.length) {
+        const r = rows[0];
+        if(r.factionName) r.group = r.factionName;
+        else if(r.gangName) r.group = r.gangName;
+        else r.group = 'Civilian';
+      }
       if(!rows.length){ fail(res,'Wrong username or password.'); return; }
       ok(res, { success: true, player: rows[0] });
     }catch(e){
