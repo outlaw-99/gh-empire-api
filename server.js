@@ -2,16 +2,13 @@ const dgram = require('dgram');
 const http = require('http');
 const url = require('url');
 const mysql = require('mysql2/promise');
-// Pure JS Whirlpool - matches WP_Hash in SA-MP (Node 18+ compatible)
-const { createHash } = require('crypto');
+// Whirlpool hash - matches WP_Hash in SA-MP
+// Requires --openssl-legacy-provider flag (set in package.json start script)
+const crypto = require('crypto');
 function whirlpool(str) {
-  // Try native first (Node < 18 with legacy OpenSSL)
-  try { return createHash('whirlpool').update(str, 'utf8').digest('hex').toUpperCase(); } catch(e) {}
-  // Pure JS fallback using whirlpool-hash-js npm package
-  try { return require('whirlpool-hash-js')(str).toUpperCase(); } catch(e) {}
-  // Last resort: return plain text so it just won't match (safe fail)
-  return str;
+  return crypto.createHash('whirlpool').update(str, 'utf8').digest('hex');
 }
+
 
 const SAMP_IP = '51.68.107.75';
 const SAMP_PORT = 19643;
