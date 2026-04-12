@@ -302,6 +302,131 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // ── CREATE ORDER ──
+  if(req.method==='POST' && pathname==='/api/orders/create'){
+    const body = await readBody(req);
+    const { username, item, itemType, price, coins } = body;
+    if(!username||!item){ fail(res,'Missing fields'); return; }
+    try{
+      const orderId = Date.now().toString(36).toUpperCase();
+      await db.query(
+        'INSERT INTO shop_orders (order_id, username, item, item_type, price, coins, status, created_at) VALUES(?,?,?,?,?,?,'pending',NOW())',
+        [orderId, username, item, itemType||'', price||'', coins||0]
+      );
+      ok(res,{success:true, orderId});
+    }catch(e){
+      // Table might not exist, create it
+      try{
+        await db.query(`CREATE TABLE IF NOT EXISTS shop_orders (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          order_id VARCHAR(20) UNIQUE,
+          username VARCHAR(64),
+          item VARCHAR(128),
+          item_type VARCHAR(64),
+          price VARCHAR(32),
+          coins INT DEFAULT 0,
+          status ENUM('pending','approved','rejected') DEFAULT 'pending',
+          created_at DATETIME,
+          approved_at DATETIME NULL,
+          approved_by VARCHAR(64) NULL
+        )`);
+        const orderId = Date.now().toString(36).toUpperCase();
+        await db.query(
+          'INSERT INTO shop_orders (order_id, username, item, item_type, price, coins, status, created_at) VALUES(?,?,?,?,?,?,'pending',NOW())',
+          [orderId, username, item, itemType||'', price||'', coins||0]
+        );
+        ok(res,{success:true, orderId});
+      }catch(e2){ fail(res,'DB error: '+e2.message,500); }
+    }
+    return;
+  }
+
+  // ── GET ORDERS (admin) ──
+  if(req.method==='POST' && pathname==='/api/orders/list'){
+    const body = await readBody(req);
+    if(body.adminPass !== ADMIN_SECRET){ fail(res,'Unauthorized',401); return; }
+    try{
+      const status = body.status || 'pending';
+      const [rows] = await db.query(
+        'SELECT * FROM shop_orders WHERE status=? ORDER BY created_at DESC LIMIT 50',
+        [status]
+      );
+      ok(res,{success:true, orders:rows});
+    }catch(e){ fail(res,'DB error: '+e.message,500); }
+    return;
+  }
+
+  // ── APPROVE / REJECT ORDER ──
+  if(req.method==='POST' && pathname==='/api/orders/action'){
+    const body = await readBody(req);
+    if(body.adminPass !== ADMIN_SECRET){ fail(res,'Unauthorized',401); return; }
+    const { orderId, action, adminName } = body;
+    if(!orderId||!action){ fail(res,'Missing fields'); return; }
+    try{
+      // Get order
+      const [[order]] = await db.query('SELECT * FROM shop_orders WHERE order_id=?',[orderId]);
+      if(!order){ fail(res,'Order not found'); return; }
+
+      if(action === 'approve'){
+        // Get player uid
+        const [[user]] = await db.query('SELECT uid, username FROM users WHERE username=?',[order.username]);
+        if(!user){ fail(res,'Player not found in database'); return; }
+
+        // Apply item based on type
+        const type = order.item_type;
+        if(type === 'vip_bronze'){
+          await db.query('UPDATE users SET vippackage=1, viptime=viptime+2592000 WHERE uid=?',[user.uid]);
+        } else if(type === 'vip_silver'){
+          await db.query('UPDATE users SET vippackage=2, viptime=viptime+2592000 WHERE uid=?',[user.uid]);
+        } else if(type === 'vip_gold'){
+          await db.query('UPDATE users SET vippackage=3, viptime=viptime+2592000 WHERE uid=?',[user.uid]);
+        } else if(type.startsWith('car_')){
+          const modelId = parseInt(type.replace('car_',''));
+          if(modelId > 0){
+            await db.query(
+              "INSERT INTO vehicles (ownerid, owner, modelid, price, pos_x, pos_y, pos_z, pos_a) VALUES(?,?,?,0,'557.7865','-1274.3177','17.2422','0.0000')",
+              [user.uid, user.username, modelId]
+            );
+          }
+        } else if(type === 'cash_500k'){
+          await db.query('UPDATE users SET cash=cash+500000 WHERE uid=?',[user.uid]);
+        } else if(type === 'cash_2m'){
+          await db.query('UPDATE users SET cash=cash+2000000 WHERE uid=?',[user.uid]);
+        } else if(type === 'cash_10m'){
+          await db.query('UPDATE users SET cash=cash+10000000 WHERE uid=?',[user.uid]);
+        } else if(type === 'coins'){
+          await db.query('UPDATE users SET coins=COALESCE(coins,0)+? WHERE uid=?',[order.coins, user.uid]);
+        } else if(type.startsWith('house_')){
+          // House needs a specific house ID from admin
+          const houseId = body.houseId ? parseInt(body.houseId) : null;
+          if(!houseId){ fail(res,'Please enter a House ID to assign'); return; }
+          // Check house exists and is not owned
+          const [[house]] = await db.query('SELECT id, owner FROM houses WHERE id=? LIMIT 1',[houseId]);
+          if(!house){ fail(res,'House ID '+houseId+' not found'); return; }
+          if(house.owner && house.owner !== '' && house.owner !== 'none' && house.owner !== 'None'){
+            fail(res,'House '+houseId+' is already owned by '+house.owner); return;
+          }
+          await db.query(
+            'UPDATE houses SET ownerid=?, owner=?, timestamp=? WHERE id=?',
+            [user.uid, user.username, Math.floor(Date.now()/1000), houseId]
+          );
+        }
+        // Mark approved
+        await db.query(
+          'UPDATE shop_orders SET status='approved', approved_at=NOW(), approved_by=? WHERE order_id=?',
+          [adminName||'Admin', orderId]
+        );
+        ok(res,{success:true, message:'✅ Order approved and item delivered to '+order.username});
+      } else if(action === 'reject'){
+        await db.query('UPDATE shop_orders SET status='rejected', approved_by=? WHERE order_id=?',[adminName||'Admin', orderId]);
+        ok(res,{success:true, message:'❌ Order rejected'});
+      } else {
+        fail(res,'Unknown action');
+      }
+    }catch(e){ fail(res,'DB error: '+e.message,500); }
+    return;
+  }
+
   res.writeHead(404); res.end(JSON.stringify({error:'Not found'}));
 });
 
