@@ -347,11 +347,25 @@ const server = http.createServer(async (req, res) => {
     if(body.adminPass !== ADMIN_SECRET){ fail(res,'Unauthorized',401); return; }
     try{
       const status = body.status || 'pending';
+      // Create table if not exists
+      await db.query(`CREATE TABLE IF NOT EXISTS shop_orders (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        order_id VARCHAR(20) UNIQUE,
+        username VARCHAR(64),
+        item VARCHAR(128),
+        item_type VARCHAR(64),
+        price VARCHAR(32),
+        coins INT DEFAULT 0,
+        status ENUM('pending','approved','rejected') DEFAULT 'pending',
+        created_at DATETIME,
+        approved_at DATETIME NULL,
+        approved_by VARCHAR(64) NULL
+      )`);
       const [rows] = await db.query(
         'SELECT * FROM shop_orders WHERE status=? ORDER BY created_at DESC LIMIT 50',
         [status]
       );
-      ok(res,{success:true, orders:rows});
+      ok(res,{success:true, orders:rows||[]});
     }catch(e){ fail(res,'DB error: '+e.message,500); }
     return;
   }
@@ -430,7 +444,29 @@ const server = http.createServer(async (req, res) => {
   res.writeHead(404); res.end(JSON.stringify({error:'Not found'}));
 });
 
+async function initDB(){
+  try{
+    await db.query(`CREATE TABLE IF NOT EXISTS shop_orders (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      order_id VARCHAR(20) UNIQUE,
+      username VARCHAR(64),
+      item VARCHAR(128),
+      item_type VARCHAR(64),
+      price VARCHAR(32),
+      coins INT DEFAULT 0,
+      status ENUM('pending','approved','rejected') DEFAULT 'pending',
+      created_at DATETIME,
+      approved_at DATETIME NULL,
+      approved_by VARCHAR(64) NULL
+    )`);
+    console.log('✅ shop_orders table ready');
+  }catch(e){
+    console.error('DB init error:', e.message);
+  }
+}
+
 server.listen(API_PORT, () => {
   console.log(`✅ GH Empire API running on http://localhost:${API_PORT}`);
   console.log(`   SA-MP: ${SAMP_IP}:${SAMP_PORT}`);
+  initDB();
 });
